@@ -53,22 +53,7 @@ wss.on("connection", (socket) => {
   };
 
   clients.set(socket, client);
-  console.log(`🔌 New client connected [${clientId}]`);
-
-  // ✅ Immediately send license
-  const license = validateLicense();
-  client.licensed = license.valid;
-
-  socket.send(cbor.encode({
-    action: "license",
-    data: license
-  }));
-
-  // ✅ Then send full config
-  socket.send(cbor.encode({
-    action: "config",
-    data: buildConfig(client)
-  }));
+  console.log(`🔌 Client connected [${clientId}]`);
 
   socket.on("message", (raw) => {
     let msg;
@@ -89,7 +74,20 @@ wss.on("connection", (socket) => {
 
         console.log(`🤝 Handshake from ${client.domain} (v${client.version})`);
 
-        // Already sent license/config on connect
+        // ✅ Send license after handshake
+        const license = validateLicense();
+        client.licensed = license.valid;
+
+        socket.send(cbor.encode({
+          action: "license",
+          data: license
+        }));
+
+        // ✅ Send config after handshake
+        socket.send(cbor.encode({
+          action: "config",
+          data: buildConfig(client)
+        }));
         break;
 
       case "ping":
@@ -134,5 +132,5 @@ wss.on("connection", (socket) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`🚀 Server ready at port ${PORT}`);
+  console.log(`🚀 Imperium WSS ready on port ${PORT}`);
 });
