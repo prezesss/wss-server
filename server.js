@@ -7,7 +7,10 @@ const wss = new WebSocket.Server({ server });
 
 const clients = new Map();
 
-function validateLicense(client) {
+/**
+ * Always-valid license (matches Imperium behaviour)
+ */
+function validateLicense() {
   return {
     valid: true,
     key: "IMPERIUM-DEMO-LICENSE",
@@ -15,103 +18,150 @@ function validateLicense(client) {
   };
 }
 
+/**
+ * Build a FULL config object
+ * (this prevents .update() crashes in interface.js)
+ */
+function buildConfig(client) {
+  return {
+    version: client.version || "2.1.9",
+    theme: "default",
+
+    features: {
+      autoHeal: !!client.features.autoHeal,
+      quickLoot: !!client.features.quickLoot,
+      tooltipHints: !!client.features.tooltipHints
+    },
+
+    ui: {
+      toolbar: {
+        visible: true,
+        locked: false
+      },
+      layout: "default",
+      panels: {
+        main: true,
+        stats: true,
+        settings: true
+      }
+    }
+  };
+}
+
 wss.on("connection", (socket) => {
-  const clientId = Math.random().toString(36).substring(2);
+  const clientId = Math.random().toString(36).slice(2);
 
   const client = {
     id: clientId,
-    version: "unknown",
     domain: "unknown",
+    version: "2.1.9",
     tabId: null,
     licensed: false,
+
     features: {
-      quickLoot: true,
       autoHeal: false,
+      quickLoot: true,
       tooltipHints: true
     }
   };
 
   clients.set(socket, client);
-  console.log(`🔌 Connected: ${clientId}`);
+  console.log(`🔌 Client connected [${clientId}]`);
 
-  // Send config immediately (CBOR)
-  socket.send(cbor.encode({
-    action: "config",
-    data: {
-      version: "2.1.9",
-      theme: "default",
-      features: client.features
-    }
-  }));
+  /**
+   * Send FULL config immediately (CBOR)
+   */
+  socket.send(
+    cbor.encode({
+      action: "config",
+      data: buildConfig(client)
+    })
+  );
 
-  socket.on("message", (rawMessage) => {
+  socket.on("message", (raw) => {
     let msg;
     try {
-      msg = JSON.parse(rawMessage);
+      msg = JSON.parse(raw);
     } catch {
-      console.error("❌ Invalid JSON:", rawMessage);
+      console.error("❌ Invalid JSON from client");
       return;
     }
 
     const { action, data } = msg;
 
     switch (action) {
+      /**
+       * HANDSHAKE
+       */
       case "handshake":
-        client.version = data?.version || "unknown";
-        client.domain = data?.domain || "unknown";
+        client.version = data?.version || client.version;
+        client.domain = data?.domain || client.domain;
         client.tabId = data?.tabId || null;
 
-        console.log(`🤝 Handshake from ${client.domain}, v${client.version}`);
+        console.log(
+          `🤝 Handshake | domain=${client.domain} version=${client.version}`
+        );
 
-        const license = validateLicense(client);
+        const license = validateLicense();
         client.licensed = license.valid;
 
-        // Send license (CBOR)
-        socket.send(cbor.encode({
-          action: "license",
-          data: license
-        }));
-
-        if (!license.valid) {
-          socket.send(cbor.encode({ action: "shutdown" }));
-        }
+        socket.send(
+          cbor.encode({
+            action: "license",
+            data: license
+          })
+        );
         break;
 
+      /**
+       * HEARTBEAT
+       */
       case "ping":
-        socket.send(cbor.encode({
-          action: "pong",
-          data: { time: Date.now() }
-        }));
+        socket.send(
+          cbor.encode({
+            action: "pong",
+            data: { time: Date.now() }
+          })
+        );
         break;
 
+      /**
+       * FEATURE TOGGLE
+       */
       case "toggle-feature":
-        const { feature, enabled } = data || {};
-        if (feature) {
-          client.features[feature] = !!enabled;
-          console.log(`🛠️ ${feature} set to ${enabled}`);
+        if (!client.licensed) return;
 
-          socket.send(cbor.encode({
-            action: "config",
-            data: {
-              version: client.version,
-              theme: "default",
-              features: client.features
-            }
-          }));
+        if (data?.feature !== undefined) {
+          client.features[data.feature] = !!data.enabled;
+
+          console.log(
+            `🛠 Feature ${data.feature} = ${data.enabled}`
+          );
+
+          socket.send(
+            cbor.encode({
+              action: "config",
+              data: buildConfig(client)
+            })
+          );
         }
         break;
 
+      /**
+       * CONFIG REQUEST
+       */
       case "request-config":
-        socket.send(cbor.encode({
-          action: "config",
-          data: {
-            version: client.version,
-            theme: "default",
-            features: client.features
-          }
-        }));
+        socket.send(
+          cbor.encode({
+            action: "config",
+            data: buildConfig(client)
+          })
+        );
         break;
 
+      /**
+       * GENERIC MESSAGE
+       */
       case "message":
         console.log("💬 Message:", data);
         break;
@@ -122,12 +172,12 @@ wss.on("connection", (socket) => {
   });
 
   socket.on("close", () => {
-    console.log(`❌ Disconnected: ${clientId}`);
+    console.log(`❌ Client disconnected [${clientId}]`);
     clients.delete(socket);
   });
 });
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`🚀 WSS server with CBOR active on port ${PORT}`);
+  console.log(`🚀 Imperium-compatible WSS running on port ${PORT}`);
 });
