@@ -1,139 +1,110 @@
-const http = require("http");
-const WebSocket = require("ws");
-const cbor = require("cbor");
+const WebSocket = require('ws');
+const http = require('http');
+const cbor = require('cbor-js');
 
 const server = http.createServer();
 const wss = new WebSocket.Server({ server });
 
-const clients = new Map();
-
-function validateLicense() {
-  return {
-    valid: true,
-    key: "IMPERIUM-VALID-LICENSE",
-    reason: null
-  };
+function sendCbor(ws, obj) {
+  try {
+    const encoded = cbor.encode(obj);
+    ws.send(encoded);
+  } catch (e) {
+    console.error("❌ Failed to send CBOR:", e);
+  }
 }
 
-function buildConfig(client) {
-  return {
-    version: client.version || "2.1.9",
-    theme: "default",
-    features: {
-      autoHeal: client.features.autoHeal ?? false,
-      quickLoot: client.features.quickLoot ?? true,
-      tooltipHints: client.features.tooltipHints ?? true
-    },
-    ui: {
-      toolbar: {
-        visible: true,
-        locked: false
-      },
-      layout: "default",
-      panels: {
-        main: true,
-        stats: true,
-        inventory: true,
-        settings: true
-      }
-    }
-  };
-}
+wss.on('connection', function connection(ws) {
+  console.log('✅ New WebSocket connection');
 
-wss.on("connection", (socket) => {
-  const clientId = Math.random().toString(36).slice(2);
-
-  const client = {
-    id: clientId,
-    domain: "unknown",
-    version: "2.1.9",
-    tabId: null,
-    licensed: false,
-    features: {}
-  };
-
-  clients.set(socket, client);
-  console.log(`🔌 Client connected [${clientId}]`);
-
-  socket.on("message", (raw) => {
-    let msg;
+  ws.on('message', function incoming(message) {
     try {
-      msg = JSON.parse(raw);
-    } catch {
-      console.error("❌ Invalid JSON");
-      return;
-    }
+      const json = JSON.parse(message);
 
-    const { action, data } = msg;
+      console.log('📩 Message received:', json);
 
-    switch (action) {
-      case "handshake":
-        client.version = data?.version || client.version;
-        client.domain = data?.domain || client.domain;
-        client.tabId = data?.tabId || null;
+      switch (json.action) {
+        case 'handshake':
+          console.log('🤝 Handshake received:', json.data);
 
-        console.log(`🤝 Handshake from ${client.domain} (v${client.version})`);
-
-        // ✅ Send license immediately
-        const license = validateLicense();
-        client.licensed = license.valid;
-
-        socket.send(cbor.encode({
-          action: "license",
-          data: license
-        }));
-
-        // ⏱️ Send config after 1 second
-        setTimeout(() => {
-          socket.send(cbor.encode({
+          // Send config (this can be customized)
+          sendCbor(ws, {
             action: "config",
-            data: buildConfig(client)
-          }));
-        }, 1000);
+            data: {
+              version: "2.1.9",
+              theme: "default",
+              features: {
+                autoHeal: true,
+                autoLoot: true,
+                autoResp: false
+              }
+            }
+          });
 
-        break;
+          // Send license
+          sendCbor(ws, {
+            action: "license",
+            data: {
+              valid: true,
+              tier: "pro",
+              expires: "2030-12-31"
+            }
+          });
 
-      case "ping":
-        socket.send(cbor.encode({
-          action: "pong",
-          data: { time: Date.now() }
-        }));
-        break;
+          // Send pong
+          sendCbor(ws, {
+            action: "pong",
+            data: {
+              timestamp: Date.now()
+            }
+          });
 
-      case "toggle-feature":
-        if (data?.feature) {
-          client.features[data.feature] = !!data.enabled;
+          break;
 
-          socket.send(cbor.encode({
+        case 'ping':
+          sendCbor(ws, {
+            action: "pong",
+            data: {
+              timestamp: Date.now()
+            }
+          });
+          break;
+
+        case 'request-config':
+          sendCbor(ws, {
             action: "config",
-            data: buildConfig(client)
-          }));
-        }
-        break;
+            data: {
+              version: "2.1.9",
+              theme: "default",
+              features: {
+                autoHeal: true,
+                autoLoot: true,
+                autoResp: false
+              }
+            }
+          });
+          break;
 
-      case "request-config":
-        socket.send(cbor.encode({
-          action: "config",
-          data: buildConfig(client)
-        }));
-        break;
+        case 'toggle-feature':
+          const feature = json.data.feature;
+          const enabled = json.data.enabled;
+          console.log(`🛠 Feature toggled: ${feature} = ${enabled}`);
+          break;
 
-      case "message":
-        console.log("💬", data);
-        break;
-
-      default:
-        console.warn("⚠️ Unknown action:", action);
+        default:
+          console.log("❓ Unknown action:", json.action);
+      }
+    } catch (e) {
+      console.error('❌ Failed to parse message:', e.message);
     }
   });
 
-  socket.on("close", () => {
-    console.log(`❌ Disconnected [${clientId}]`);
-    clients.delete(socket);
+  ws.on('close', () => {
+    console.log('❌ Client disconnected');
   });
 });
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`🚀 Imperium-compatible WSS running on port ${PORT}`);
+  console.log(`🚀 WebSocket server running on port ${PORT}`);
 });
