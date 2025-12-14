@@ -1,14 +1,12 @@
 const http = require("http");
 const WebSocket = require("ws");
+const cbor = require("cbor");
 
 const server = http.createServer();
 const wss = new WebSocket.Server({ server });
 
 const clients = new Map();
 
-/**
- * Helper: Fake license validation (always valid for now)
- */
 function validateLicense(client) {
   return {
     valid: true,
@@ -22,8 +20,8 @@ wss.on("connection", (socket) => {
 
   const client = {
     id: clientId,
-    domain: "unknown",
     version: "unknown",
+    domain: "unknown",
     tabId: null,
     licensed: false,
     features: {
@@ -36,8 +34,8 @@ wss.on("connection", (socket) => {
   clients.set(socket, client);
   console.log(`🔌 Connected: ${clientId}`);
 
-  // Send config on connect
-  socket.send(JSON.stringify({
+  // Send config immediately (CBOR)
+  socket.send(cbor.encode({
     action: "config",
     data: {
       version: "2.1.9",
@@ -50,7 +48,7 @@ wss.on("connection", (socket) => {
     let msg;
     try {
       msg = JSON.parse(rawMessage);
-    } catch (e) {
+    } catch {
       console.error("❌ Invalid JSON:", rawMessage);
       return;
     }
@@ -58,54 +56,41 @@ wss.on("connection", (socket) => {
     const { action, data } = msg;
 
     switch (action) {
-      /**
-       * HANDSHAKE → respond with license
-       */
       case "handshake":
         client.version = data?.version || "unknown";
         client.domain = data?.domain || "unknown";
         client.tabId = data?.tabId || null;
 
-        console.log(`🤝 Handshake from ${client.domain}, version ${client.version}`);
+        console.log(`🤝 Handshake from ${client.domain}, v${client.version}`);
 
-        // Send license check result
         const license = validateLicense(client);
         client.licensed = license.valid;
 
-        socket.send(JSON.stringify({
+        // Send license (CBOR)
+        socket.send(cbor.encode({
           action: "license",
           data: license
         }));
 
-        // Only send shutdown if license is invalid (not in this version)
         if (!license.valid) {
-          socket.send(JSON.stringify({ action: "shutdown" }));
+          socket.send(cbor.encode({ action: "shutdown" }));
         }
         break;
 
-      /**
-       * Ping / Heartbeat
-       */
       case "ping":
-        socket.send(JSON.stringify({
+        socket.send(cbor.encode({
           action: "pong",
           data: { time: Date.now() }
         }));
         break;
 
-      /**
-       * Toggle a feature
-       */
       case "toggle-feature":
-        if (!client.licensed) return;
-
         const { feature, enabled } = data || {};
         if (feature) {
           client.features[feature] = !!enabled;
-          console.log(`🛠️ Feature ${feature} = ${enabled}`);
+          console.log(`🛠️ ${feature} set to ${enabled}`);
 
-          // Echo back updated config
-          socket.send(JSON.stringify({
+          socket.send(cbor.encode({
             action: "config",
             data: {
               version: client.version,
@@ -116,11 +101,8 @@ wss.on("connection", (socket) => {
         }
         break;
 
-      /**
-       * Client requested config
-       */
       case "request-config":
-        socket.send(JSON.stringify({
+        socket.send(cbor.encode({
           action: "config",
           data: {
             version: client.version,
@@ -130,18 +112,12 @@ wss.on("connection", (socket) => {
         }));
         break;
 
-      /**
-       * General message logging
-       */
       case "message":
-        console.log(`💬 Message from ${client.id}:`, data);
+        console.log("💬 Message:", data);
         break;
 
-      /**
-       * Unknown action
-       */
       default:
-        console.warn(`⚠️ Unrecognized action: ${action}`);
+        console.warn("⚠️ Unknown action:", action);
     }
   });
 
@@ -153,5 +129,5 @@ wss.on("connection", (socket) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`🚀 Imperium-style WebSocket running on port ${PORT}`);
+  console.log(`🚀 WSS server with CBOR active on port ${PORT}`);
 });
