@@ -1,12 +1,13 @@
 {
   "name": "wss-server",
   "version": "1.0.0",
+  "description": "WebSocket server with CBOR support for extension",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "cbor-js": "^0.1.0",
+    "cbor": "^10.0.11",
     "ws": "^8.13.0"
   }
 }
