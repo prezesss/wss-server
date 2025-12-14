@@ -8,20 +8,29 @@ const clients = new Map();
 
 wss.on("connection", (socket, req) => {
   const clientId = Math.random().toString(36).slice(2);
-  clients.set(socket, { id: clientId, features: {} });
+  const defaultFeatures = {
+    quickLoot: true,
+    autoHeal: false,
+    tooltipHints: true
+  };
+
+  const clientState = {
+    id: clientId,
+    features: { ...defaultFeatures },
+    version: "unknown",
+    domain: "unknown"
+  };
+
+  clients.set(socket, clientState);
 
   console.log(`🔌 Client connected [${clientId}]`);
 
-  // Initial config message (just like Imperium likely does)
+  // Immediately send config on connect
   socket.send(JSON.stringify({
     action: "config",
     data: {
       theme: "default",
-      features: {
-        quickLoot: true,
-        autoHeal: false,
-        tooltipHints: true
-      },
+      features: clientState.features,
       version: "2.1.9"
     }
   }));
@@ -32,22 +41,19 @@ wss.on("connection", (socket, req) => {
     try {
       msg = JSON.parse(rawMessage);
     } catch {
-      console.error("❌ Received non-JSON message:", rawMessage);
+      console.error("❌ Non-JSON message:", rawMessage);
       return;
     }
 
     const { action, data } = msg;
     const client = clients.get(socket);
 
-    console.log(`📨 [${client.id}] Action: ${action}`, data);
-
     switch (action) {
       case "handshake":
-        // Store handshake info
-        client.version = data.version;
-        client.domain = data.domain;
-        client.tabId = data.tabId;
-        console.log(`🤝 Handshake from [${client.domain}], version ${client.version}`);
+        client.version = data.version || "unknown";
+        client.domain = data.domain || "unknown";
+        client.tabId = data.tabId || "unknown";
+        console.log(`🤝 Handshake from ${client.domain} (v${client.version})`);
         break;
 
       case "ping":
@@ -61,21 +67,31 @@ wss.on("connection", (socket, req) => {
         const { feature, enabled } = data;
         client.features[feature] = enabled;
         console.log(`🛠️ Feature toggled: ${feature} = ${enabled}`);
+
+        // Optional: immediately send config update back
+        socket.send(JSON.stringify({
+          action: "config",
+          data: {
+            features: client.features,
+            version: client.version,
+            theme: "default"
+          }
+        }));
         break;
 
       case "request-config":
         socket.send(JSON.stringify({
           action: "config",
           data: {
-            theme: "dark",
             features: client.features,
-            version: "2.1.9"
+            version: client.version,
+            theme: "default"
           }
         }));
         break;
 
       case "message":
-        console.log(`💬 Custom message from client:`, data);
+        console.log(`💬 Custom message:`, data);
         break;
 
       default:
@@ -84,12 +100,12 @@ wss.on("connection", (socket, req) => {
   });
 
   socket.on("close", () => {
-    console.log(`❌ Client disconnected [${clients.get(socket).id}]`);
+    console.log(`❌ Client disconnected [${clientId}]`);
     clients.delete(socket);
   });
 });
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`🚀 Imperium-style WebSocket server running on port ${PORT}`);
+  console.log(`🚀 Imperium-compatible WebSocket server running on port ${PORT}`);
 });
