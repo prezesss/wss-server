@@ -1,110 +1,84 @@
-const WebSocket = require('ws');
-const http = require('http');
-const cbor = require('cbor-js');
+const WebSocket = require("ws");
+const cbor = require("cbor");
 
-const server = http.createServer();
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({ port: process.env.PORT || 3000 });
 
-function sendCbor(ws, obj) {
-  try {
-    const encoded = cbor.encode(obj);
-    ws.send(encoded);
-  } catch (e) {
-    console.error("❌ Failed to send CBOR:", e);
-  }
-}
+console.log("✅ WSS server is running...");
 
-wss.on('connection', function connection(ws) {
-  console.log('✅ New WebSocket connection');
+wss.on("connection", (ws) => {
+  console.log("🔌 New client connected");
 
-  ws.on('message', function incoming(message) {
+  ws.on("message", async (message) => {
     try {
-      const json = JSON.parse(message);
+      const decoded = await cbor.decodeFirst(message);
+      console.log("📩 Received CBOR message:", decoded);
 
-      console.log('📩 Message received:', json);
+      if (!decoded || !decoded.action) return;
 
-      switch (json.action) {
-        case 'handshake':
-          console.log('🤝 Handshake received:', json.data);
+      switch (decoded.action) {
+        case "handshake":
+          console.log("🤝 Handshake received:", decoded.data);
 
-          // Send config (this can be customized)
-          sendCbor(ws, {
+          // Send config
+          ws.send(cbor.encode({
             action: "config",
             data: {
-              version: "2.1.9",
-              theme: "default",
-              features: {
-                autoHeal: true,
-                autoLoot: true,
-                autoResp: false
-              }
+              autoHeal: true,
+              antiAfk: false
             }
-          });
+          }));
 
           // Send license
-          sendCbor(ws, {
+          ws.send(cbor.encode({
             action: "license",
             data: {
-              valid: true,
-              tier: "pro",
-              expires: "2030-12-31"
+              status: "active",
+              expiry: "2099-12-31"
             }
-          });
+          }));
 
-          // Send pong
-          sendCbor(ws, {
+          // Optional: Send pong after handshake
+          ws.send(cbor.encode({
             action: "pong",
-            data: {
-              timestamp: Date.now()
-            }
-          });
-
+            data: { timestamp: Date.now() }
+          }));
           break;
 
-        case 'ping':
-          sendCbor(ws, {
+        case "ping":
+          ws.send(cbor.encode({
             action: "pong",
-            data: {
-              timestamp: Date.now()
-            }
-          });
+            data: { timestamp: Date.now() }
+          }));
           break;
 
-        case 'request-config':
-          sendCbor(ws, {
+        case "request-config":
+          ws.send(cbor.encode({
             action: "config",
             data: {
-              version: "2.1.9",
-              theme: "default",
-              features: {
-                autoHeal: true,
-                autoLoot: true,
-                autoResp: false
-              }
+              autoHeal: true,
+              antiAfk: false
             }
-          });
+          }));
           break;
 
-        case 'toggle-feature':
-          const feature = json.data.feature;
-          const enabled = json.data.enabled;
-          console.log(`🛠 Feature toggled: ${feature} = ${enabled}`);
+        case "toggle-feature":
+          console.log(`🛠️ Toggle: ${decoded.data.feature} -> ${decoded.data.enabled}`);
           break;
 
         default:
-          console.log("❓ Unknown action:", json.action);
+          console.warn("⚠️ Unknown action:", decoded.action);
       }
-    } catch (e) {
-      console.error('❌ Failed to parse message:', e.message);
+
+    } catch (err) {
+      console.error("❌ Failed to parse CBOR message:", err);
     }
   });
 
-  ws.on('close', () => {
-    console.log('❌ Client disconnected');
+  ws.on("close", () => {
+    console.log("❌ Client disconnected");
   });
-});
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`🚀 WebSocket server running on port ${PORT}`);
+  ws.on("error", (err) => {
+    console.error("❗ WebSocket error:", err);
+  });
 });
