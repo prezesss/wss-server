@@ -74,7 +74,7 @@ wss.on("connection", (socket) => {
 
         console.log(`🤝 Handshake from ${client.domain} (v${client.version})`);
 
-        // ✅ Send license after handshake
+        // ✅ Send license immediately
         const license = validateLicense();
         client.licensed = license.valid;
 
@@ -83,11 +83,14 @@ wss.on("connection", (socket) => {
           data: license
         }));
 
-        // ✅ Send config after handshake
-        socket.send(cbor.encode({
-          action: "config",
-          data: buildConfig(client)
-        }));
+        // ⏱️ Send config after 1 second
+        setTimeout(() => {
+          socket.send(cbor.encode({
+            action: "config",
+            data: buildConfig(client)
+          }));
+        }, 1000);
+
         break;
 
       case "ping":
@@ -132,5 +135,5 @@ wss.on("connection", (socket) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`🚀 Imperium WSS ready on port ${PORT}`);
+  console.log(`🚀 Imperium-compatible WSS running on port ${PORT}`);
 });
