@@ -4,17 +4,12 @@ const WebSocket = require("ws");
 const server = http.createServer();
 const wss = new WebSocket.Server({ server });
 
-/**
- * In-memory client store
- * (Imperium works session-based, this matches that behavior)
- */
 const clients = new Map();
 
 /**
- * Change this if you want real license logic later
+ * Helper: Fake license validation (always valid for now)
  */
 function validateLicense(client) {
-  // ✅ For now: ALWAYS VALID
   return {
     valid: true,
     key: "IMPERIUM-DEMO-LICENSE",
@@ -23,12 +18,12 @@ function validateLicense(client) {
 }
 
 wss.on("connection", (socket) => {
-  const clientId = Math.random().toString(36).slice(2);
+  const clientId = Math.random().toString(36).substring(2);
 
   const client = {
     id: clientId,
-    version: "unknown",
     domain: "unknown",
+    version: "unknown",
     tabId: null,
     licensed: false,
     features: {
@@ -39,12 +34,9 @@ wss.on("connection", (socket) => {
   };
 
   clients.set(socket, client);
+  console.log(`🔌 Connected: ${clientId}`);
 
-  console.log(`🔌 Client connected [${clientId}]`);
-
-  /**
-   * Imperium sends config immediately on connect
-   */
+  // Send config on connect
   socket.send(JSON.stringify({
     action: "config",
     data: {
@@ -54,12 +46,12 @@ wss.on("connection", (socket) => {
     }
   }));
 
-  socket.on("message", (raw) => {
+  socket.on("message", (rawMessage) => {
     let msg;
     try {
-      msg = JSON.parse(raw);
-    } catch {
-      console.error("❌ Invalid JSON:", raw);
+      msg = JSON.parse(rawMessage);
+    } catch (e) {
+      console.error("❌ Invalid JSON:", rawMessage);
       return;
     }
 
@@ -67,22 +59,16 @@ wss.on("connection", (socket) => {
 
     switch (action) {
       /**
-       * =========================
-       * HANDSHAKE
-       * =========================
+       * HANDSHAKE → respond with license
        */
       case "handshake":
-        client.version = data?.version ?? "unknown";
-        client.domain = data?.domain ?? "unknown";
-        client.tabId = data?.tabId ?? null;
+        client.version = data?.version || "unknown";
+        client.domain = data?.domain || "unknown";
+        client.tabId = data?.tabId || null;
 
-        console.log(
-          `🤝 Handshake | domain=${client.domain} version=${client.version}`
-        );
+        console.log(`🤝 Handshake from ${client.domain}, version ${client.version}`);
 
-        /**
-         * LICENSE CHECK (CRITICAL)
-         */
+        // Send license check result
         const license = validateLicense(client);
         client.licensed = license.valid;
 
@@ -91,19 +77,14 @@ wss.on("connection", (socket) => {
           data: license
         }));
 
-        /**
-         * If license is invalid, Imperium disables itself
-         */
+        // Only send shutdown if license is invalid (not in this version)
         if (!license.valid) {
           socket.send(JSON.stringify({ action: "shutdown" }));
         }
-
         break;
 
       /**
-       * =========================
-       * HEARTBEAT
-       * =========================
+       * Ping / Heartbeat
        */
       case "ping":
         socket.send(JSON.stringify({
@@ -113,22 +94,17 @@ wss.on("connection", (socket) => {
         break;
 
       /**
-       * =========================
-       * FEATURE TOGGLES
-       * =========================
+       * Toggle a feature
        */
       case "toggle-feature":
         if (!client.licensed) return;
 
-        if (data?.feature !== undefined) {
-          client.features[data.feature] = !!data.enabled;
-          console.log(
-            `🛠 Feature ${data.feature} => ${data.enabled}`
-          );
+        const { feature, enabled } = data || {};
+        if (feature) {
+          client.features[feature] = !!enabled;
+          console.log(`🛠️ Feature ${feature} = ${enabled}`);
 
-          /**
-           * Imperium often re-sends config after changes
-           */
+          // Echo back updated config
           socket.send(JSON.stringify({
             action: "config",
             data: {
@@ -141,9 +117,7 @@ wss.on("connection", (socket) => {
         break;
 
       /**
-       * =========================
-       * CONFIG REQUEST
-       * =========================
+       * Client requested config
        */
       case "request-config":
         socket.send(JSON.stringify({
@@ -157,31 +131,27 @@ wss.on("connection", (socket) => {
         break;
 
       /**
-       * =========================
-       * GENERIC MESSAGES
-       * =========================
+       * General message logging
        */
       case "message":
-        console.log("💬 Message:", data);
+        console.log(`💬 Message from ${client.id}:`, data);
         break;
 
       /**
-       * =========================
-       * UNKNOWN ACTIONS
-       * =========================
+       * Unknown action
        */
       default:
-        console.warn("⚠️ Unknown action:", action);
+        console.warn(`⚠️ Unrecognized action: ${action}`);
     }
   });
 
   socket.on("close", () => {
-    console.log(`❌ Client disconnected [${clientId}]`);
+    console.log(`❌ Disconnected: ${clientId}`);
     clients.delete(socket);
   });
 });
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`🚀 Imperium‑compatible WebSocket running on port ${PORT}`);
+  console.log(`🚀 Imperium-style WebSocket running on port ${PORT}`);
 });
