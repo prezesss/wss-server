@@ -3,10 +3,10 @@ const cbor = require('cbor');
 
 const wss = new WebSocket.Server({ port: process.env.PORT || 8080 });
 
-console.log('Mirror WSS server starting... (filtered mode)');
+console.log('Mirror WSS server starting... (clean mode - no noise)');
 
 wss.on('connection', (ws, req) => {
-    const clientIp = req.socket.remoteAddress;
+    const clientIp = req.socket.remoteAddress || 'unknown';
     console.log(`[NEW CLIENT] Connected from ${clientIp}`);
 
     ws.on('message', (data, isBinary) => {
@@ -15,29 +15,36 @@ wss.on('connection', (ws, req) => {
             return;
         }
 
+        let decoded;
         try {
-            const decoded = cbor.decode(data);
-
-            // === FILTER OUT NOISE ===
-            if (decoded.type === 'engine' || decoded.type === 'ack' || decoded.type === 'online') {
-                return;  // Ignore these – no log
-            }
-
-            // Log everything else (move, captcha, queue, init, etc.)
-            console.log('[IMPORTANT]', JSON.stringify(decoded, null, 2));
-
-            const hex = data.toString('hex').slice(0, 200) + (data.length > 100 ? '...' : '');
-            console.log('[HEX partial]:', hex);
+            decoded = cbor.decode(data);
         } catch (e) {
-            // If not CBOR or decode fails, still show hex
-            const hex = data.toString('hex').slice(0, 200) + '...';
-            console.log('[RAW BINARY (non-CBOR?)] Hex:', hex);
+            const hex = data.toString('hex').slice(0, 200) + (data.length > 100 ? '...' : '');
+            console.log('[RAW BINARY]', hex);
+            return;
         }
+
+        // Ignore the noisy messages you don't want
+        if (decoded.type === 'engine' || decoded.type === 'ack' || decoded.type === 'online') {
+            return;  // Silent - no log at all
+        }
+
+        // Show everything else clearly
+        console.log('\n📩 IMPORTANT MESSAGE:');
+        console.log(JSON.stringify(decoded, null, 2));
+
+        const hex = data.toString('hex').slice(0, 200) + (data.length > 100 ? '...' : '');
+        console.log('Hex (partial):', hex);
+        console.log('---');
     });
 
-    ws.on('close', (code, reason) => {
+    ws.on('close', (code) => {
         console.log(`[CLIENT DISCONNECTED] Code: ${code}`);
+    });
+
+    ws.on('error', (err) => {
+        console.error('[SERVER ERROR]', err.message);
     });
 });
 
-console.log('Mirror ready – noise filtered out!');
+console.log('Mirror server ready! Only important messages will appear.');
