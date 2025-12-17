@@ -24,9 +24,12 @@ wss.on('connection', (ws, req) => {
             return;
         }
 
-        // Ignore the noisy messages you don't want
-        if (decoded.type === 'engine' || decoded.type === 'ack' || decoded.type === 'online') {
-            return;  // Silent - no log at all
+        // Ignore noisy / frequent messages - silent, no logging
+        if (decoded.type === 'engine' || 
+            decoded.type === 'ack' || 
+            decoded.type === 'online' || 
+            decoded.type === 'move') {
+            return;  // Completely silent
         }
 
         // Show everything else clearly
