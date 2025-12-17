@@ -1,84 +1,38 @@
-const WebSocket = require("ws");
-const cbor = require("cbor");
+const WebSocket = require('ws');
+const cbor = require('cbor');
 
-const wss = new WebSocket.Server({ port: process.env.PORT || 3000 });
+const wss = new WebSocket.Server({ port: process.env.PORT || 8080 });
 
-console.log("✅ WSS server is running...");
+console.log('Mirror WSS server starting...');
 
-wss.on("connection", (ws) => {
-  console.log("🔌 New client connected");
+wss.on('connection', (ws, req) => {
+    const clientIp = req.socket.remoteAddress;
+    console.log(`[NEW CLIENT] Connected from ${clientIp}`);
 
-  ws.on("message", async (message) => {
-    try {
-      const decoded = await cbor.decodeFirst(message);
-      console.log("📩 Received CBOR message:", decoded);
+    ws.on('message', (data, isBinary) => {
+        if (!isBinary) {
+            console.log('[TEXT]', data.toString());
+            return;
+        }
 
-      if (!decoded || !decoded.action) return;
+        const hex = data.toString('hex').slice(0, 200) + (data.length > 100 ? '...' : '');
+        console.log('[BINARY] Hex (partial):', hex);
 
-      switch (decoded.action) {
-        case "handshake":
-          console.log("🤝 Handshake received:", decoded.data);
+        try {
+            const decoded = cbor.decode(data);
+            console.log('[DECODED]', JSON.stringify(decoded, null, 2));
+        } catch (e) {
+            console.log('[DECODE ERROR]', e.message);
+        }
+    });
 
-          // Send config
-          ws.send(cbor.encode({
-            action: "config",
-            data: {
-              autoHeal: true,
-              antiAfk: false
-            }
-          }));
+    ws.on('close', (code, reason) => {
+        console.log(`[CLIENT DISCONNECTED] Code: ${code}, Reason: ${reason || 'none'}`);
+    });
 
-          // Send license
-          ws.send(cbor.encode({
-            action: "license",
-            data: {
-              status: "active",
-              expiry: "2099-12-31"
-            }
-          }));
-
-          // Optional: Send pong after handshake
-          ws.send(cbor.encode({
-            action: "pong",
-            data: { timestamp: Date.now() }
-          }));
-          break;
-
-        case "ping":
-          ws.send(cbor.encode({
-            action: "pong",
-            data: { timestamp: Date.now() }
-          }));
-          break;
-
-        case "request-config":
-          ws.send(cbor.encode({
-            action: "config",
-            data: {
-              autoHeal: true,
-              antiAfk: false
-            }
-          }));
-          break;
-
-        case "toggle-feature":
-          console.log(`🛠️ Toggle: ${decoded.data.feature} -> ${decoded.data.enabled}`);
-          break;
-
-        default:
-          console.warn("⚠️ Unknown action:", decoded.action);
-      }
-
-    } catch (err) {
-      console.error("❌ Failed to parse CBOR message:", err);
-    }
-  });
-
-  ws.on("close", () => {
-    console.log("❌ Client disconnected");
-  });
-
-  ws.on("error", (err) => {
-    console.error("❗ WebSocket error:", err);
-  });
+    ws.on('error', (err) => {
+        console.error('[ERROR]', err.message);
+    });
 });
+
+console.log('Mirror server ready. Listening for Imperium traffic...');
