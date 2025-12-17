@@ -3,7 +3,7 @@ const cbor = require('cbor');
 
 const wss = new WebSocket.Server({ port: process.env.PORT || 8080 });
 
-console.log('Mirror WSS server starting...');
+console.log('Mirror WSS server starting... (filtered mode)');
 
 wss.on('connection', (ws, req) => {
     const clientIp = req.socket.remoteAddress;
@@ -15,24 +15,29 @@ wss.on('connection', (ws, req) => {
             return;
         }
 
-        const hex = data.toString('hex').slice(0, 200) + (data.length > 100 ? '...' : '');
-        console.log('[BINARY] Hex (partial):', hex);
-
         try {
             const decoded = cbor.decode(data);
-            console.log('[DECODED]', JSON.stringify(decoded, null, 2));
+
+            // === FILTER OUT NOISE ===
+            if (decoded.type === 'engine' || decoded.type === 'ack' || decoded.type === 'online') {
+                return;  // Ignore these – no log
+            }
+
+            // Log everything else (move, captcha, queue, init, etc.)
+            console.log('[IMPORTANT]', JSON.stringify(decoded, null, 2));
+
+            const hex = data.toString('hex').slice(0, 200) + (data.length > 100 ? '...' : '');
+            console.log('[HEX partial]:', hex);
         } catch (e) {
-            console.log('[DECODE ERROR]', e.message);
+            // If not CBOR or decode fails, still show hex
+            const hex = data.toString('hex').slice(0, 200) + '...';
+            console.log('[RAW BINARY (non-CBOR?)] Hex:', hex);
         }
     });
 
     ws.on('close', (code, reason) => {
-        console.log(`[CLIENT DISCONNECTED] Code: ${code}, Reason: ${reason || 'none'}`);
-    });
-
-    ws.on('error', (err) => {
-        console.error('[ERROR]', err.message);
+        console.log(`[CLIENT DISCONNECTED] Code: ${code}`);
     });
 });
 
-console.log('Mirror server ready. Listening for Imperium traffic...');
+console.log('Mirror ready – noise filtered out!');
