@@ -1,13 +1,16 @@
 {
-  "name": "wss-server",
+  "name": "imperium-traffic-mirror",
   "version": "1.0.0",
-  "description": "WebSocket server with CBOR support for extension",
+  "description": "Mirror all Imperium WSS traffic",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "cbor": "^10.0.11",
-    "ws": "^8.13.0"
+    "ws": "^8.18.0",
+    "cbor": "^9.0.2"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }
